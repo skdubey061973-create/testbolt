@@ -1,5 +1,5 @@
 // Enhanced AutoJobr Popup with Advanced Features
-const API_BASE_URL = 'https://cf942c1a-8aa1-4eb6-b16c-28a387fd4b1e-00-feprbstml9g6.worf.replit.dev';
+const API_BASE_URL = 'https://fce2901e-6020-4c23-97dc-13c7fd7f97c3-00-15wzli1eenkr6.picard.replit.dev';
 
 class AutoJobrPopup {
   constructor() {
