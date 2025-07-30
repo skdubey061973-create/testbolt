@@ -1,7 +1,7 @@
-// Enhanced AutoJobr Popup with Advanced Features
+// Unified AutoJobr Extension Popup
 const API_BASE_URL = 'https://fce2901e-6020-4c23-97dc-13c7fd7f97c3-00-15wzli1eenkr6.picard.replit.dev';
 
-class AutoJobrPopup {
+class AutoJobrExtension {
   constructor() {
     this.currentTab = null;
     this.userProfile = null;
@@ -9,11 +9,18 @@ class AutoJobrPopup {
     this.isConnected = false;
     this.isAuthenticated = false;
     this.cache = new Map();
+    this.stats = {
+      todayApplications: 0,
+      todayJobsSaved: 0,
+      todayAutofills: 0
+    };
     this.init();
   }
 
   async init() {
     try {
+      console.log('🚀 AutoJobr Extension initializing...');
+      
       // Get current tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       this.currentTab = tab;
@@ -22,22 +29,33 @@ class AutoJobrPopup {
       this.initializeEventListeners();
       this.showLoading(true);
       
+      // Load settings
+      await this.loadSettings();
+      
       // Check connection and authentication
       await this.checkConnection();
-      await this.loadUserProfile();
+      
+      // Load user data if authenticated
+      if (this.isAuthenticated) {
+        await this.loadUserProfile();
+        await this.loadStats();
+      }
+      
+      // Analyze current page
       await this.analyzeCurrentPage();
       
       this.showLoading(false);
+      console.log('✅ AutoJobr Extension initialized successfully');
       
     } catch (error) {
-      console.error('Popup initialization error:', error);
+      console.error('❌ Extension initialization error:', error);
       this.showError('Failed to initialize extension');
       this.showLoading(false);
     }
   }
 
   initializeEventListeners() {
-    // Action buttons
+    // Main action buttons
     document.getElementById('autofillBtn').addEventListener('click', () => this.handleAutofill());
     document.getElementById('analyzeBtn').addEventListener('click', () => this.handleAnalyze());
     document.getElementById('saveJobBtn').addEventListener('click', () => this.handleSaveJob());
@@ -50,11 +68,13 @@ class AutoJobrPopup {
     
     // Footer actions
     document.getElementById('openDashboard').addEventListener('click', () => this.openDashboard());
+    document.getElementById('helpBtn').addEventListener('click', () => this.openHelp());
 
     // Settings toggles
     this.initializeToggle('autofillToggle', 'autofillEnabled');
     this.initializeToggle('trackingToggle', 'trackingEnabled');
     this.initializeToggle('notificationsToggle', 'notificationsEnabled');
+    this.initializeToggle('autoSaveToggle', 'autoSaveEnabled');
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
@@ -69,7 +89,7 @@ class AutoJobrPopup {
       toggle.classList.toggle('active', isEnabled);
     });
 
-    // Handle clicks with animation
+    // Handle clicks
     toggle.addEventListener('click', () => {
       const isActive = toggle.classList.contains('active');
       const newState = !isActive;
@@ -79,55 +99,82 @@ class AutoJobrPopup {
       
       // Show feedback
       this.showNotification(
-        `${storageKey.replace('Enabled', '')} ${newState ? 'enabled' : 'disabled'}`,
+        `${this.formatSettingName(storageKey)} ${newState ? 'enabled' : 'disabled'}`,
         newState ? 'success' : 'info'
       );
     });
   }
 
+  formatSettingName(key) {
+    return key.replace('Enabled', '').replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+  }
+
+  async loadSettings() {
+    try {
+      const settings = await chrome.storage.sync.get([
+        'autofillEnabled',
+        'trackingEnabled', 
+        'notificationsEnabled',
+        'autoSaveEnabled'
+      ]);
+      
+      // Apply settings to UI
+      Object.entries(settings).forEach(([key, value]) => {
+        const toggleId = key.replace('Enabled', 'Toggle');
+        const toggle = document.getElementById(toggleId);
+        if (toggle) {
+          toggle.classList.toggle('active', value !== false);
+        }
+      });
+      
+    } catch (error) {
+      console.error('Failed to load settings:', error);
+    }
+  }
+
   async checkConnection() {
     try {
-      // Check server health
-      const healthResponse = await this.makeApiRequest('/api/health', {
-        method: 'GET',
-        timeout: 5000
+      // Test server connection
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const healthResponse = await fetch(`${API_BASE_URL}/api/health`, {
+        signal: controller.signal,
+        mode: 'cors'
       });
       
-      if (!healthResponse) {
-        throw new Error('Server not reachable');
+      clearTimeout(timeoutId);
+      this.isConnected = healthResponse.ok;
+      
+      if (this.isConnected) {
+        // Check authentication
+        const authResponse = await this.makeApiRequest('/api/user', { method: 'GET' });
+        this.isAuthenticated = authResponse && !authResponse.error;
       }
       
-      // Check authentication
-      const authResponse = await this.makeApiRequest('/api/user', {
-        method: 'GET'
-      });
-      
-      this.isConnected = !!healthResponse;
-      this.isAuthenticated = !!authResponse && !authResponse.error;
-      
-      this.updateConnectionStatus(this.isConnected, this.isAuthenticated);
+      this.updateConnectionStatus();
       
     } catch (error) {
       console.error('Connection check failed:', error);
       this.isConnected = false;
       this.isAuthenticated = false;
-      this.updateConnectionStatus(false, false);
+      this.updateConnectionStatus();
     }
   }
 
   async makeApiRequest(endpoint, options = {}) {
     try {
-      // Check cache first for GET requests
+      // Check cache for GET requests
       const cacheKey = `${endpoint}_${JSON.stringify(options)}`;
       if (options.method === 'GET' && this.cache.has(cacheKey)) {
         const cached = this.cache.get(cacheKey);
-        if (Date.now() - cached.timestamp < 30000) { // 30 second cache
+        if (Date.now() - cached.timestamp < 30000) {
           return cached.data;
         }
       }
 
-      // Get stored session token
-      const result = await chrome.storage.local.get(['sessionToken', 'userId']);
+      // Get session token
+      const result = await chrome.storage.local.get(['sessionToken']);
       const sessionToken = result.sessionToken;
       
       const headers = {
@@ -139,7 +186,7 @@ class AutoJobrPopup {
         headers['Authorization'] = `Bearer ${sessionToken}`;
       }
       
-      // Add timeout handling
+      // Make request with timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), options.timeout || 10000);
       
@@ -153,21 +200,16 @@ class AutoJobrPopup {
       
       clearTimeout(timeoutId);
       
+      // Handle authentication errors
       if (response.status === 401) {
         await chrome.storage.local.remove(['sessionToken', 'userId']);
         this.isAuthenticated = false;
-        this.updateConnectionStatus(this.isConnected, false);
+        this.updateConnectionStatus();
         return { error: 'Authentication required' };
       }
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      // Extract session token from response headers
-      const newToken = response.headers.get('X-Session-Token');
-      if (newToken) {
-        await chrome.storage.local.set({ sessionToken: newToken });
       }
       
       const data = await response.json();
@@ -188,24 +230,24 @@ class AutoJobrPopup {
         return { error: 'Request timeout' };
       }
       console.error(`API request failed for ${endpoint}:`, error);
-      return null;
+      return { error: error.message };
     }
   }
 
-  updateConnectionStatus(connected, authenticated = false) {
+  updateConnectionStatus() {
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('connectionStatus');
     
-    if (connected && authenticated) {
+    if (this.isConnected && this.isAuthenticated) {
       statusDot.classList.remove('disconnected');
-      statusText.textContent = 'Connected & Authenticated';
+      statusText.textContent = 'Connected & Ready';
       this.enableActionButtons();
-    } else if (connected && !authenticated) {
+    } else if (this.isConnected && !this.isAuthenticated) {
       statusDot.classList.add('disconnected');
-      statusText.innerHTML = 'Not authenticated - <button class="login-btn" id="loginBtn">Sign In</button>';
+      statusText.innerHTML = 'Not signed in - <button class="login-btn" id="loginBtn">Sign In</button>';
       this.disableActionButtons();
       
-      // Add login button handler
+      // Add login handler
       setTimeout(() => {
         document.getElementById('loginBtn')?.addEventListener('click', () => this.handleLogin());
       }, 100);
@@ -239,7 +281,8 @@ class AutoJobrPopup {
                 chrome.tabs.remove(tab.id);
                 this.checkConnection();
                 this.loadUserProfile();
-                this.showNotification('Successfully authenticated!', 'success');
+                this.loadStats();
+                this.showNotification('Successfully signed in!', 'success');
               });
             }
             
@@ -265,7 +308,7 @@ class AutoJobrPopup {
     const pageInfo = document.getElementById('pageInfo');
     const url = this.currentTab?.url || '';
     
-    // Enhanced site detection
+    // Supported job boards
     const supportedSites = [
       { domain: 'linkedin.com', name: 'LinkedIn', icon: '💼' },
       { domain: 'indeed.com', name: 'Indeed', icon: '🔍' },
@@ -277,7 +320,9 @@ class AutoJobrPopup {
       { domain: 'greenhouse.io', name: 'Greenhouse', icon: '🌱' },
       { domain: 'lever.co', name: 'Lever', icon: '⚖️' },
       { domain: 'workday.com', name: 'Workday', icon: '📅' },
-      { domain: 'myworkdayjobs.com', name: 'Workday', icon: '📅' }
+      { domain: 'myworkdayjobs.com', name: 'Workday', icon: '📅' },
+      { domain: 'angel.co', name: 'AngelList', icon: '👼' },
+      { domain: 'wellfound.com', name: 'Wellfound', icon: '🚀' }
     ];
 
     const detectedSite = supportedSites.find(site => url.includes(site.domain));
@@ -302,7 +347,7 @@ class AutoJobrPopup {
           <div class="page-info-icon" style="background: #ef4444; color: white;">!</div>
           <strong>Unsupported job board</strong>
         </div>
-        <div style="font-size: 12px; opacity: 0.8;">Navigate to a supported job board to enable auto-fill</div>
+        <div style="font-size: 12px; opacity: 0.8;">Navigate to a supported job board to enable features</div>
       `;
       
       this.disableActionButtons();
@@ -323,14 +368,16 @@ class AutoJobrPopup {
           const jobInfo = document.getElementById('jobInfo');
           const jobTitle = document.getElementById('jobTitle');
           const jobCompany = document.getElementById('jobCompany');
+          const jobLocation = document.getElementById('jobLocation');
           
           jobTitle.textContent = this.jobData.title;
           jobCompany.textContent = this.jobData.company || 'Company not detected';
+          jobLocation.textContent = this.jobData.location || '';
           jobInfo.style.display = 'block';
           
-          // Analyze job match if user is authenticated
+          // Auto-analyze if authenticated
           if (this.isAuthenticated && this.userProfile) {
-            await this.showJobAnalysis();
+            await this.performJobAnalysis();
           }
         }
       }
@@ -339,7 +386,7 @@ class AutoJobrPopup {
     }
   }
 
-  async showJobAnalysis() {
+  async performJobAnalysis() {
     if (!this.jobData || !this.userProfile) return;
 
     try {
@@ -352,45 +399,37 @@ class AutoJobrPopup {
       });
 
       if (analysis && !analysis.error) {
-        const scoreSection = document.getElementById('scoreSection');
-        const matchScore = document.getElementById('matchScore');
-        const scoreFill = document.getElementById('scoreFill');
-
-        const score = analysis.matchScore || 0;
-        matchScore.textContent = `${score}%`;
-        
-        // Animate score fill
-        setTimeout(() => {
-          scoreFill.style.width = `${score}%`;
-        }, 100);
-        
-        scoreSection.style.display = 'block';
-
-        // Update colors based on score
-        let color = '#ef4444';
-        if (score >= 80) color = '#22c55e';
-        else if (score >= 60) color = '#f59e0b';
-        else if (score >= 40) color = '#f97316';
-
-        scoreFill.style.background = `linear-gradient(90deg, ${color}, ${color}cc)`;
-        matchScore.style.background = `linear-gradient(135deg, ${color}, ${color}dd)`;
-        matchScore.style.webkitBackgroundClip = 'text';
-        matchScore.style.webkitTextFillColor = 'transparent';
-        
-        // Log detailed analysis for debugging
-        console.log('Job Analysis Results:', {
-          matchScore: analysis.matchScore,
-          factors: analysis.factors,
-          recommendation: analysis.recommendation,
-          userSkillsCount: analysis.userProfile?.skillsCount,
-          userTitle: analysis.userProfile?.professionalTitle,
-          jobTitle: this.jobData.title,
-          jobCompany: this.jobData.company
-        });
+        this.showJobScore(analysis.matchScore || 0);
       }
     } catch (error) {
       console.error('Job analysis failed:', error);
     }
+  }
+
+  showJobScore(score) {
+    const scoreSection = document.getElementById('scoreSection');
+    const matchScore = document.getElementById('matchScore');
+    const scoreFill = document.getElementById('scoreFill');
+
+    matchScore.textContent = `${score}%`;
+    
+    // Animate score fill
+    setTimeout(() => {
+      scoreFill.style.width = `${score}%`;
+    }, 100);
+    
+    scoreSection.style.display = 'block';
+
+    // Update colors based on score
+    let color = '#ef4444';
+    if (score >= 80) color = '#22c55e';
+    else if (score >= 60) color = '#f59e0b';
+    else if (score >= 40) color = '#f97316';
+
+    scoreFill.style.background = `linear-gradient(90deg, ${color}, ${color}cc)`;
+    matchScore.style.background = `linear-gradient(135deg, ${color}, ${color}dd)`;
+    matchScore.style.webkitBackgroundClip = 'text';
+    matchScore.style.webkitTextFillColor = 'transparent';
   }
 
   async loadUserProfile() {
@@ -406,6 +445,28 @@ class AutoJobrPopup {
     }
   }
 
+  async loadStats() {
+    if (!this.isAuthenticated) return;
+
+    try {
+      const stats = await this.makeApiRequest('/api/extension/stats');
+      if (stats && !stats.error) {
+        this.stats = stats;
+        this.updateStatsDisplay();
+      }
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+    }
+  }
+
+  updateStatsDisplay() {
+    document.getElementById('todayApplications').textContent = this.stats.todayApplications || 0;
+    document.getElementById('todayJobsSaved').textContent = this.stats.todayJobsSaved || 0;
+    document.getElementById('todayAutofills').textContent = this.stats.todayAutofills || 0;
+    document.getElementById('statsSection').style.display = 'block';
+  }
+
+  // Action Handlers
   async handleAutofill() {
     if (!this.isAuthenticated) {
       this.showError('Please sign in to use auto-fill');
@@ -431,7 +492,11 @@ class AutoJobrPopup {
           'success'
         );
         
-        // Track the application
+        // Update stats
+        this.stats.todayAutofills++;
+        this.updateStatsDisplay();
+        
+        // Track application
         await this.trackApplication();
       } else {
         throw new Error(response?.error || 'Auto-fill failed');
@@ -454,7 +519,7 @@ class AutoJobrPopup {
 
     try {
       await this.detectJobDetails();
-      await this.showJobAnalysis();
+      await this.performJobAnalysis();
       this.showNotification('✅ Job analysis completed!', 'success');
     } catch (error) {
       console.error('Analysis error:', error);
@@ -466,7 +531,7 @@ class AutoJobrPopup {
 
   async handleSaveJob() {
     if (!this.isAuthenticated || !this.jobData) {
-      this.showError('Please ensure you\'re authenticated and on a job page');
+      this.showError('Please ensure you\'re signed in and on a job page');
       return;
     }
 
@@ -487,6 +552,10 @@ class AutoJobrPopup {
 
       if (result && !result.error) {
         this.showNotification('✅ Job saved successfully!', 'success');
+        
+        // Update stats
+        this.stats.todayJobsSaved++;
+        this.updateStatsDisplay();
       } else {
         throw new Error(result?.error || 'Failed to save job');
       }
@@ -500,7 +569,7 @@ class AutoJobrPopup {
 
   async handleGenerateCoverLetter() {
     if (!this.isAuthenticated || !this.jobData) {
-      this.showError('Please ensure you\'re authenticated and on a job page');
+      this.showError('Please ensure you\'re signed in and on a job page');
       return;
     }
 
@@ -537,7 +606,9 @@ class AutoJobrPopup {
   }
 
   async handleResumeAction() {
-    this.showNotification('Resume optimization coming soon!', 'info');
+    chrome.tabs.create({
+      url: `${API_BASE_URL}/resume`
+    });
   }
 
   async handleProfileAction() {
@@ -556,7 +627,7 @@ class AutoJobrPopup {
     if (!this.jobData) return;
 
     try {
-      await this.makeApiRequest('/api/extension/applications', {
+      await this.makeApiRequest('/api/applications', {
         method: 'POST',
         body: JSON.stringify({
           jobTitle: this.jobData.title,
@@ -567,6 +638,11 @@ class AutoJobrPopup {
           status: 'applied'
         })
       });
+      
+      // Update stats
+      this.stats.todayApplications++;
+      this.updateStatsDisplay();
+      
     } catch (error) {
       console.error('Failed to track application:', error);
     }
@@ -662,9 +738,15 @@ class AutoJobrPopup {
       url: `${API_BASE_URL}/applications`
     });
   }
+
+  openHelp() {
+    chrome.tabs.create({
+      url: `${API_BASE_URL}/help/extension`
+    });
+  }
 }
 
-// Initialize popup when DOM is loaded
+// Initialize extension when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  new AutoJobrPopup();
+  new AutoJobrExtension();
 });
