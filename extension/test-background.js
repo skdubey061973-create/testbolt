@@ -15,7 +15,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Test API connection
 async function testConnection() {
   try {
-    const response = await fetch('https://cf942c1a-8aa1-4eb6-b16c-28a387fd4b1e-00-feprbstml9g6.worf.replit.dev/api/health');
+    const response = await fetch('https://fce2901e-6020-4c23-97dc-13c7fd7f97c3-00-15wzli1eenkr6.picard.replit.dev/api/health');
     console.log('API health check:', response.ok ? 'SUCCESS' : 'FAILED');
   } catch (error) {
     console.error('API connection failed:', error);
