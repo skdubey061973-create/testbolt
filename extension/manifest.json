@@ -1,0 +1,122 @@
+{
+  "manifest_version": 3,
+  "name": "AutoJobr",
+  "version": "2.1.0",
+  "description": "AI-powered job application assistant - Smart auto-fill, job matching, and application tracking across 100+ job boards",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "notifications",
+    "cookies",
+    "webNavigation",
+    "tabs",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "*://*.linkedin.com/*",
+    "*://*.indeed.com/*",
+    "*://*.glassdoor.com/*",
+    "*://*.ziprecruiter.com/*",
+    "*://*.monster.com/*",
+    "*://*.careerbuilder.com/*",
+    "*://*.dice.com/*",
+    "*://*.stackoverflow.com/*",
+    "*://*.angel.co/*",
+    "*://*.wellfound.com/*",
+    "*://*.greenhouse.io/*",
+    "*://*.lever.co/*",
+    "*://*.workday.com/*",
+    "*://*.myworkdayjobs.com/*",
+    "*://*.icims.com/*",
+    "*://*.smartrecruiters.com/*",
+    "*://*.bamboohr.com/*",
+    "*://*.ashbyhq.com/*",
+    "*://*.careers.google.com/*",
+    "*://*.amazon.jobs/*",
+    "*://*.microsoft.com/*",
+    "*://*.apple.com/*",
+    "*://*.meta.com/*",
+    "*://*.replit.dev/*",
+    "*://*.replit.app/*",
+    "*://localhost:*/*",
+    "*://127.0.0.1:*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.linkedin.com/*",
+        "*://*.indeed.com/*",
+        "*://*.glassdoor.com/*",
+        "*://*.ziprecruiter.com/*",
+        "*://*.monster.com/*",
+        "*://*.careerbuilder.com/*",
+        "*://*.dice.com/*",
+        "*://*.stackoverflow.com/*",
+        "*://*.angel.co/*",
+        "*://*.wellfound.com/*",
+        "*://*.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://*.workday.com/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.icims.com/*",
+        "*://*.smartrecruiters.com/*",
+        "*://*.bamboohr.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://*.careers.google.com/*",
+        "*://*.amazon.jobs/*",
+        "*://*.microsoft.com/*",
+        "*://*.apple.com/*",
+        "*://*.meta.com/*"
+      ],
+      "js": ["content-script.js"],
+      "css": ["popup-styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AutoJobr - AI Job Assistant",
+    "default_icon": {
+      "16": "icons/icon16.svg",
+      "32": "icons/icon32.svg",
+      "48": "icons/icon48.svg",
+      "128": "icons/icon128.svg"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.svg",
+    "32": "icons/icon32.svg",
+    "48": "icons/icon48.svg",
+    "128": "icons/icon128.svg"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["popup-styles.css", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "autofill": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A"
+      },
+      "description": "Auto-fill current form"
+    },
+    "analyze": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+J"
+      },
+      "description": "Analyze job match"
+    },
+    "save-job": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S"
+      },
+      "description": "Save current job"
+    }
+  }
+}
